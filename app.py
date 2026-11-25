@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Gestor de Morbilidad - Willian Almenar
-# SISPRO / EPI12 / EPI15  +  Motor SIS-03/PRO (tabulador diario) + Foto->IA
+# SISPRO / EPI12 / EPI15  +  Motor SIS-03/PRO (tabulador diario) + Foto->IA (OpenRouter)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -31,7 +31,7 @@ st.markdown("""
 st.markdown('<div class="main-header"><h1>Gestor de Morbilidad - Validación de Reportes</h1><p>Willian Almenar</p></div>', unsafe_allow_html=True)
 st.markdown("---")
 
-# ============ DICCIONARIOS Y FUNCIONES BASE (ORIGINAL) ============
+# ============ DICCIONARIOS Y FUNCIONES BASE ============
 EXPECTED_COLUMNS = {
     "SISPRO": ["CODIGO_EPS","NOMBRE_EPS","TIPO_DOCUMENTO","NUMERO_DOCUMENTO","NOMBRE_PACIENTE","APELLIDO_PACIENTE",
                "FECHA_ATENCION","CODIGO_DIAGNOSTICO","DESCRIPCION_DIAGNOSTICO","CODIGO_CIE10","SEXO","EDAD","MUNICIPIO","DEPARTAMENTO"],
@@ -408,7 +408,6 @@ def hijos(ix,p):
     return [c for c in ix if c.startswith(p+'.') and c.count('.')==n]
 
 def analizar_hoja(hoja, modo='dias'):
-    """modo='dias': suma C:AG (produccion real). modo='ah': columna TOTAL SIS O4."""
     campo = 'total' if modo=='ah' else 'suma'
     df = hoja['df']; ix = idx_hoja(hoja)
     V  = lambda c: val(ix,c,campo)
@@ -684,7 +683,7 @@ def construir_excel(resumen, grupos, perfil, morb, refs, nut, ta, prog, aud, cru
         if cruces is not None and len(cruces): cruces.to_excel(w,'Consolidado vs meses',index=False)
     return bio.getvalue()
 
-# ============ FOTO -> JSON -> VALIDACION ============
+# ============ FOTO -> JSON -> VALIDACION (OpenRouter) ============
 PROMPT_SIS03 = """Eres un transcriptor y auditor de instrumentos SIS-03/PRO (Tabulador Diario de Actividades de Programas de Salud, Medicina General y Familiar).
 Trabajas sobre la FOTO de una planilla mensual. No inventes datos.
 
@@ -709,9 +708,15 @@ def llamar_vision(base_url, model, api_key, imagenes_b64, instruccion, timeout=1
         contenido.append({"type":"image_url","image_url":{"url":"data:image/jpeg;base64,"+b}})
     payload = {"model":model,"temperature":0,
                "messages":[{"role":"system","content":PROMPT_SIS03},{"role":"user","content":contenido}]}
+    # FIX: cabeceras requeridas por OpenRouter
+    headers = {
+        "Authorization": "Bearer " + api_key,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://streamlit.app",
+        "X-Title": "Gestor de Morbilidad"
+    }
     r = requests.post(base_url.rstrip('/')+"/chat/completions",
-                      headers={"Authorization":"Bearer "+api_key,"Content-Type":"application/json"},
-                      json=payload, timeout=timeout)
+                      headers=headers, json=payload, timeout=timeout)
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
 
@@ -1037,9 +1042,9 @@ with tab7:
     st.header("Foto de la planilla → informe (IA + validacion en Python)")
     st.caption("Paso 1: el modelo de vision transcribe la foto a JSON. Paso 2: Python valida y calcula. Paso 3: se redacta el informe con datos verificados.")
     with st.expander("Configuracion del modelo de vision"):
-        base  = st.text_input("Base URL (compatible OpenAI)", value="https://api.openai.com/v1")
-        model = st.text_input("Modelo con vision", value="gpt-4o-mini")
-        key   = st.text_input("API Key", type="password", value=_secret("OPENAI_API_KEY",""))
+        base  = st.text_input("Base URL (compatible OpenAI)", value="https://openrouter.ai/api/v1")
+        model = st.text_input("Modelo con vision", value="qwen/qwen2.5-vl-32b-instruct:free")
+        key   = st.text_input("API Key", type="password", value=_secret("OPENROUTER_API_KEY",""))
         st.caption("La clave se usa solo en esta sesion; no se guarda en el archivo.")
     imgs = st.file_uploader("Fotos de la planilla (una o varias)", type=['png','jpg','jpeg','webp'], accept_multiple_files=True)
     if imgs and st.button("Transcribir foto a JSON"):
